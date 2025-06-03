@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>飞翔的小鸟</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#E53E3E',    // 红色主色调
+                        secondary: '#48BB78',  // 绿色松树
+                        accent: '#ED8936',     // 橙色点缀
+                        dark: '#1A202C',       // 深色文本
+                        light: '#F7FAFC',      // 浅色背景
+                    },
+                    fontFamily: {
+                        game: ['"Press Start 2P"', 'cursive', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .game-container {
+                @apply relative w-full max-w-md mx-auto overflow-hidden rounded-xl shadow-2xl transition-all duration-500;
+            }
+            .game-container-start {
+                @apply bg-blue-500/80;
+            }
+            .game-container-playing {
+                @apply bg-blue-500; /* 变亮20% */
+            }
+            .game-score {
+                @apply absolute top-4 left-4 bg-dark/70 text-white px-4 py-2 rounded-lg text-lg font-bold z-10 transition-all duration-500;
+            }
+            .game-start-screen {
+                @apply absolute inset-0 bg-dark/80 flex flex-col items-center justify-center z-20 transition-opacity duration-500;
+            }
+            .game-over-screen {
+                @apply absolute inset-0 bg-dark/80 flex flex-col items-center justify-center z-20 hidden transition-opacity duration-500;
+            }
+            .btn-game {
+                @apply bg-primary hover:bg-primary/90 text-white font-bold py-3 px-8 rounded-lg shadow-lg transform transition-all duration-300 hover:scale-105 focus:outline-none;
+            }
+            .btn-game-secondary {
+                @apply bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-lg shadow-md transform transition-all duration-300 hover:scale-105 focus:outline-none;
+            }
+            .difficulty-indicator {
+                @apply absolute top-4 right-4 bg-accent/80 text-white px-4 py-2 rounded-lg text-lg font-bold z-10 opacity-0 transition-opacity duration-500;
+            }
+            .sound-control {
+                @apply absolute top-4 right-40 bg-dark/70 text-white px-3 py-2 rounded-lg text-lg z-10 cursor-pointer transition-all duration-300 hover:bg-dark/90;
+            }
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gradient-to-br from-blue-900 to-indigo-900 min-h-screen flex flex-col items-center justify-center p-4 transition-all duration-500">
+    <h1 id="gameTitle" class="text-[clamp(1.5rem,3vw,2.5rem)] font-bold text-white mb-6 text-center transition-all duration-500">飞翔的小鸟</h1>
+    
+    <div id="gameContainer" class="game-container game-container-start">
+        <!-- 游戏画布 -->
+        <canvas id="gameCanvas" class="w-full"></canvas>
+        
+        <!-- 分数显示 -->
+        <div class="game-score" id="scoreDisplay">分数: 0</div>
+        
+        <!-- 难度指示器 -->
+        <div id="difficultyIndicator" class="difficulty-indicator">难度: 1</div>
+        
+        <!-- 声音控制按钮 -->
+        <div id="soundControl" class="sound-control">
+            <i class="fa fa-volume-up"></i>
+        </div>
+        
+        <!-- 开始屏幕 -->
+        <div class="game-start-screen" id="startScreen">
+            <h2 class="text-2xl font-bold text-white mb-8">飞翔的小鸟</h2>
+            <p class="text-white mb-8 text-center px-6">连续点击屏幕或按空格键让小鸟保持高度，避开松树！<br>每获得10分难度提升一级</p>
+            <button id="startButton" class="btn-game">
+                <i class="fa fa-play mr-2"></i>开始游戏
+            </button>
+        </div>
+    </div>
+    
+    <div id="gameHint" class="mt-6 text-white text-center transition-all duration-500">
+        <p>提示: 连续点击或按空格键让小鸟保持飞行</p>
+    </div>
+
+    <!-- 音频资源 -->
+    <audio id="bgMusic" loop>
+        <source src="https://assets.mixkit.co/active_storage/sfx/2645/2645-preview.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="jumpSound">
+        <source src="https://assets.mixkit.co/active_storage/sfx/2706/2706-preview.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="collisionSound">
+        <source src="https://assets.mixkit.co/active_storage/sfx/3077/3077-preview.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="scoreSound">
+        <source src="https://assets.mixkit.co/active_storage/sfx/2163/2163-preview.mp3" type="audio/mpeg">
+    </audio>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // 获取DOM元素
+            const canvas = document.getElementById('gameCanvas');
+            const ctx = canvas.getContext('2d');
+            const startScreen = document.getElementById('startScreen');
+            const scoreDisplay = document.getElementById('scoreDisplay');
+            const gameContainer = document.getElementById('gameContainer');
+            const gameTitle = document.getElementById('gameTitle');
+            const gameHint = document.getElementById('gameHint');
+            const difficultyIndicator = document.getElementById('difficultyIndicator');
+            const soundControl = document.getElementById('soundControl');
+            
+            // 音频元素
+            const bgMusic = document.getElementById('bgMusic');
+            const jumpSound = document.getElementById('jumpSound');
+            const collisionSound = document.getElementById('collisionSound');
+            const scoreSound = document.getElementById('scoreSound');
+            
+            // 声音状态
+            let soundEnabled = true;
+            
+            // 设置画布尺寸
+            function resizeCanvas() {
+                const containerWidth = gameContainer.clientWidth;
+                canvas.width = containerWidth;
+                canvas.height = containerWidth * 0.75; // 4:3 比例
+            }
+            
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            
+            // 游戏状态
+            let gameStarted = false;
+            let gameOver = false;
+            let score = 0;
+            let animationId = null;
+            let difficultyLevel = 1; // 新增：难度等级
+            const MAX_DIFFICULTY = 5; // 最大难度等级
+            let trees = []; // 新增：定义松树数组
+            let backgroundOffset = 0; // 背景偏移量
+            let scorePopup = null; // 分数弹出动画
+            
+            // 使用固定背景图片
+            const skyImage = new Image();
+            skyImage.src = 'https://picsum.photos/id/1015/800/600'; // 使用单张天空图片
+            
+            // 小鸟对象 - 增强动画效果
+            const bird = {
+                x: 50,
+                y: 100,
+                width: 40,
+                height: 30,
+                velocity: 0,
+                baseGravity: 0.35, // 基础重力
+                get gravity() { // 根据难度动态计算重力
+                    return this.baseGravity * (1 + (difficultyLevel - 1) * 0.2);
+                },
+                jumpStrength: -8,
+                color: '#E53E3E', // 红色
+                rotation: 0, // 小鸟旋转角度
+                maxRotation: 25, // 最大旋转角度
+                wingPosition: 0, // 翅膀位置（0-1范围）
+                wingSpeed: 0.1, // 翅膀扇动速度
+                isJumping: false, // 是否正在跳跃
+                
+                jump() {
+                    this.velocity = this.jumpStrength;
+                    this.rotation = -20; // 跳跃时向上倾斜
+                    this.wingPosition = 0; // 重置翅膀位置
+                    this.isJumping = true;
+                    
+                    // 播放跳跃音效
+                    if (soundEnabled) {
+                        jumpSound.currentTime = 0;
+                        jumpSound.play().catch(err => console.log("播放音效失败:", err));
+                    }
+                    
+                    // 跳跃动画效果
+                    setTimeout(() => {
+                        this.isJumping = false;
+                    }, 150);
+                },
+                
+                update() {
+                    this.velocity += this.gravity;
+                    this.y += this.velocity;
+                    
+                    // 更新翅膀动画
+                    if (this.isJumping) {
+                        this.wingPosition = (this.wingPosition + this.wingSpeed * 2) % 1; // 跳跃时翅膀快速扇动
+                    } else {
+                        this.wingPosition = (this.wingPosition + this.wingSpeed) % 1;
+                    }
+                    
+                    // 更新旋转角度
+                    if (this.velocity < 0) {
+                        this.rotation = Math.max(this.rotation - 2, -this.maxRotation);
+                    } else {
+                        this.rotation = Math.min(this.rotation + 1, this.maxRotation);
+                    }
+                    
+                    // 限制小鸟不能飞出画布顶部
+                    if (this.y < 0) {
+                        this.y = 0;
+                        this.velocity = 0;
+                    }
+                },
+                
+                draw() {
+                    // 保存当前上下文状态
+                    ctx.save();
+                    
+                    // 平移和旋转画布以绘制旋转的小鸟
+                    ctx.translate(this.x + this.width/2, this.y + this.height/2);
+                    ctx.rotate(this.rotation * Math.PI / 180);
+                    
+                    // 绘制小鸟身体
+                    ctx.fillStyle = this.color;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.width/2, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // 绘制小鸟眼睛
+                    ctx.fillStyle = 'white';
+                    ctx.beginPath();
+                    ctx.arc(this.width * 0.25, -5, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.fillStyle = 'black';
+                    ctx.beginPath();
+                    ctx.arc(this.width * 0.3, -5, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // 绘制小鸟嘴巴
+                    ctx.fillStyle = '#ED8936';
+                    ctx.beginPath();
+                    ctx.moveTo(this.width/2, 0);
+                    ctx.lineTo(this.width/2 + 10, -5);
+                    ctx.lineTo(this.width/2 + 10, 5);
+                    ctx.closePath();
+                    ctx.fill();
+                    
+                    // 绘制小鸟翅膀 - 带动画效果
+                    ctx.fillStyle = '#C53030';
+                    
+                    // 计算翅膀角度（基于wingPosition）
+                    const wingAngle = Math.sin(this.wingPosition * Math.PI * 2) * 15;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(-5, 0);
+                    ctx.lineTo(5 + wingAngle/3, -10 - wingAngle);
+                    ctx.lineTo(15, 0);
+                    ctx.closePath();
+                    ctx.fill();
+                    
+                    // 恢复上下文状态
+                    ctx.restore();
+                }
+            };
+            
+            // 修改松树相关参数 - 使间距和速度可配置
+            const treeWidth = 60;
+            const baseTreeGap = 150; // 基础间隙
+            const baseTreeSpeed = 2.1; // 基础速度
+            const baseTreeDistance = 350; // 基础间距
+            
+            // 生成新松树
+            function generateTree() {
+                const minHeight = canvas.height * 0.15;
+                const maxHeight = canvas.height * 0.6;
+                
+                // 根据难度计算间隙 - 难度越高间隙越小
+                const currentTreeGap = baseTreeGap / (1 + (difficultyLevel - 1) * 0.1);
+                
+                // 随机上松树高度
+                const topTreeHeight = Math.floor(Math.random() * (maxHeight - minHeight + 1)) + minHeight;
+                
+                // 计算下松树位置和高度
+                const bottomTreeY = topTreeHeight + currentTreeGap;
+                const bottomTreeHeight = canvas.height - bottomTreeY;
+                
+                // 随机生成松树颜色（深浅不同的绿色）
+                const greenVariation = 85 + Math.floor(Math.random() * 40);
+                const treeColor = `rgb(72, ${greenVariation}, 120)`;
+                
+                trees.push({
+                    x: canvas.width,
+                    topHeight: topTreeHeight,
+                    bottomY: bottomTreeY,
+                    bottomHeight: bottomTreeHeight,
+                    width: treeWidth,
+                    passed: false,
+                    color: treeColor,
+                    shakeOffset: 0, // 松树摇晃偏移量
+                    shakeDirection: 1 // 摇晃方向
+                });
+            }
+            
+            // 更新松树位置
+            function updateTrees() {
+                // 计算当前难度下的速度
+                const currentSpeed = baseTreeSpeed * (1 + (difficultyLevel - 1) * 0.15);
+                
+                // 背景移动速度（视差效果）
+                backgroundOffset = (backgroundOffset + currentSpeed * 0.3) % canvas.width;
+                
+                // 生成新松树 - 使用动态间距
+                const currentTreeDistance = baseTreeDistance / (1 + (difficultyLevel - 1) * 0.1);
+                if (trees.length === 0 || trees[trees.length - 1].x < canvas.width - currentTreeDistance) {
+                    generateTree();
+                }
+                
+                // 移除已经离开画布的松树
+                if (trees.length > 0 && trees[0].x + treeWidth < 0) {
+                    trees.shift();
+                }
+                
+                // 更新所有松树位置和动画
+                for (let i = 0; i < trees.length; i++) {
+                    trees[i].x -= currentSpeed;
+                    
+                    // 松树轻微摇晃动画
+                    if (Math.random() < 0.05) {
+                        trees[i].shakeDirection *= -1;
+                    }
+                    trees[i].shakeOffset += trees[i].shakeDirection * 0.2;
+                    trees[i].shakeOffset = Math.max(-2, Math.min(2, trees[i].shakeOffset));
+                    
+                    // 检查小鸟是否通过松树
+                    if (!trees[i].passed && bird.x > trees[i].x + treeWidth) {
+                        trees[i].passed = true;
+                        score++;
+                        scoreDisplay.textContent = `分数: ${score}`;
+                        
+                        // 显示得分动画
+                        scorePopup = {
+                            x: trees[i].x + treeWidth,
+                            y: canvas.height / 2,
+                            value: "+1",
+                            opacity: 1,
+                            vy: -2
+                        };
+                        
+                        // 播放得分音效
+                        if (soundEnabled) {
+                            scoreSound.currentTime = 0;
+                            scoreSound.play().catch(err => console.log("播放音效失败:", err));
+                        }
+                        
+                        updateDifficulty(); // 每次得分后检查是否提升难度
+                    }
+                }
+            }
+            
+            // 新增：更新难度等级的函数
+            function updateDifficulty() {
+                // 根据分数计算难度等级
+                const newLevel = Math.min(Math.floor(score / 10) + 1, MAX_DIFFICULTY);
+                
+                if (newLevel !== difficultyLevel) {
+                    const oldLevel = difficultyLevel;
+                    difficultyLevel = newLevel;
+                    console.log(`难度提升到等级 ${difficultyLevel}`);
+                    
+                    // 更新难度指示器
+                    difficultyIndicator.textContent = `难度: ${difficultyLevel}`;
+                    difficultyIndicator.classList.remove('opacity-0');
+                    
+                    // 显示难度提升提示
+                    scoreDisplay.textContent = `分数: ${score} (难度提升到 ${difficultyLevel}!)`;
+                    
+                    // 2秒后恢复正常显示
+                    setTimeout(() => {
+                        scoreDisplay.textContent = `分数: ${score}`;
+                        difficultyIndicator.classList.add('opacity-0');
+                    }, 2000);
+                }
+            }
+            
+            // 绘制松树
+            function drawTrees() {
+                for (let i = 0; i < trees.length; i++) {
+                    const tree = trees[i];
+                    
+                    // 保存当前上下文状态
+                    ctx.save();
+                    
+                    // 应用松树摇晃效果
+                    ctx.translate(tree.shakeOffset, 0);
+                    
+                    // 绘制上松树
+                    ctx.fillStyle = tree.color;
+                    ctx.fillRect(tree.x, 0, tree.width, tree.topHeight);
+                    
+                    // 绘制松树叶（三角形）
+                    ctx.fillStyle = '#2F855A';
+                    
+                    // 上松树叶
+                    const topLeafHeight = 30;
+                    ctx.beginPath();
+                    ctx.moveTo(tree.x - 10, tree.topHeight);
+                    ctx.lineTo(tree.x + tree.width/2, tree.topHeight - topLeafHeight);
+                    ctx.lineTo(tree.x + tree.width + 10, tree.topHeight);
+                    ctx.closePath();
+                    ctx.fill();
+                    
+                    // 绘制下松树
+                    ctx.fillStyle = tree.color;
+                    ctx.fillRect(tree.x, tree.bottomY, tree.width, tree.bottomHeight);
+                    
+                    // 下松树叶
+                    ctx.fillStyle = '#2F855A';
+                    ctx.beginPath();
+                    ctx.moveTo(tree.x - 10, tree.bottomY);
+                    ctx.lineTo(tree.x + tree.width/2, tree.bottomY + topLeafHeight);
+                    ctx.lineTo(tree.x + tree.width + 10, tree.bottomY);
+                    ctx.closePath();
+                    ctx.fill();
+                    
+                    // 恢复上下文状态
+                    ctx.restore();
+                }
+            }
+            
+            // 检查碰撞
+            function checkCollision() {
+                // 检查是否碰到画布底部
+                if (bird.y + bird.height > canvas.height) {
+                    // 播放碰撞音效
+                    if (soundEnabled) {
+                        collisionSound.currentTime = 0;
+                        collisionSound.play().catch(err => console.log("播放音效失败:", err));
+                    }
+                    return true;
+                }
+                
+                // 检查是否碰到松树
+                for (let i = 0; i < trees.length; i++) {
+                    const tree = trees[i];
+                    
+                    // 小鸟与上松树的碰撞检测
+                    if (bird.x + bird.width > tree.x && 
+                        bird.x < tree.x + tree.width && 
+                        (bird.y < tree.topHeight || bird.y + bird.height > tree.bottomY)) {
+                        // 播放碰撞音效
+                        if (soundEnabled) {
+                            collisionSound.currentTime = 0;
+                            collisionSound.play().catch(err => console.log("播放音效失败:", err));
+                        }
+                        return true;
+                    }
+                }
+                
+                return false;
+            }
+            
+            // 绘制背景
+            function drawBackground() {
+                if (skyImage.complete) {
+                    const scale = Math.max(canvas.width / skyImage.width, canvas.height / skyImage.height);
+                    
+                    // 绘制第一张背景图（滚动）
+                    ctx.drawImage(
+                        skyImage, 
+                        -backgroundOffset, 0, 
+                        skyImage.width * scale, skyImage.height * scale
+                    );
+                    
+                    // 绘制第二张背景图（无缝衔接）
+                    ctx.drawImage(
+                        skyImage, 
+                        canvas.width - backgroundOffset, 0, 
+                        skyImage.width * scale, skyImage.height * scale
+                    );
+                } else {
+                    ctx.fillStyle = '#4299E1';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                }
+                
+                // 绘制云朵装饰 - 增加动态效果
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                
+                // 动态云朵
+                const cloudSpeed = 0.5;
+                const dynamicClouds = [
+                    { x: (canvas.width * 0.2 - backgroundOffset * 0.1) % (canvas.width + 100) - 50, y: canvas.height * 0.1 },
+                    { x: (canvas.width * 0.5 - backgroundOffset * 0.15) % (canvas.width + 100) - 50, y: canvas.height * 0.15 },
+                    { x: (canvas.width * 0.8 - backgroundOffset * 0.2) % (canvas.width + 100) - 50, y: canvas.height * 0.08 }
+                ];
+                
+                dynamicClouds.forEach(cloud => {
+                    ctx.beginPath();
+                    ctx.arc(cloud.x, cloud.y, 20, 0, Math.PI * 2);
+                    ctx.arc(cloud.x + 30, cloud.y - 10, 25, 0, Math.PI * 2);
+                    ctx.arc(cloud.x + 60, cloud.y, 20, 0, Math.PI * 2);
+                    ctx.arc(cloud.x + 30, cloud.y + 15, 30, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+            }
+            
+            // 绘制分数弹出动画
+            function drawScorePopup() {
+                if (scorePopup) {
+                    ctx.fillStyle = `rgba(255, 255, 255, ${scorePopup.opacity})`;
+                    ctx.font = 'bold 20px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(scorePopup.value, scorePopup.x, scorePopup.y);
+                    
+                    // 更新弹出动画
+                    scorePopup.y += scorePopup.vy;
+                    scorePopup.opacity -= 0.02;
+                    
+                    if (scorePopup.opacity <= 0) {
+                        scorePopup = null;
+                    }
+                }
+            }
+            
+            // 绘制游戏结束界面
+            function drawGameOverScreen() {
+                // 绘制半透明遮罩，降低屏幕亮度20%
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // 绘制"Game Over"文字
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 36px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Game Over', canvas.width / 2, canvas.height / 2 - 40);
+                
+                // 绘制分数
+                ctx.font = '24px Arial';
+                ctx.fillText(`你的分数: ${score}`, canvas.width / 2, canvas.height / 2 + 10);
+                
+                // 绘制难度
+                ctx.font = '18px Arial';
+                ctx.fillText(`最高难度: ${difficultyLevel}`, canvas.width / 2, canvas.height / 2 + 45);
+                
+                // 绘制"点击开始游戏"提示
+                ctx.font = 'bold 20px Arial';
+                ctx.fillText('点击开始游戏', canvas.width / 2, canvas.height / 2 + 100);
+            }
+            
+            // 游戏开始动画
+            function gameStartAnimation() {
+                // 简单的淡入动画
+                const startOpacity = 1;
+                let opacity = startOpacity;
+                
+                function animate() {
+                    opacity -= 0.02;
+                    if (opacity <= 0) {
+                        return;
+                    }
+                    
+                    // 绘制半透明遮罩
+                    ctx.fillStyle = `rgba(0, 0, 0, ${opacity})`;
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    
+                    animationId = requestAnimationFrame(animate);
+                }
+                
+                animate();
+            }
+            
+            // 游戏循环
+            function gameLoop() {
+                // 清除画布
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                // 绘制背景
+                drawBackground();
+                
+                if (!gameOver && gameStarted) {
+                    // 更新小鸟位置
+                    bird.update();
+                    
+                    // 更新松树位置
+                    updateTrees();
+                    
+                    // 检查碰撞
+                    if (checkCollision()) {
+                        gameOver = true;
+                        cancelAnimationFrame(animationId);
+                        
+                        // 暂停背景音乐
+                        bgMusic.pause();
+                        
+                        // 恢复UI元素
+                        gameTitle.classList.remove('opacity-0', 'scale-95');
+                        gameHint.classList.remove('opacity-0');
+                        gameContainer.classList.remove('game-container-playing');
+                        gameContainer.classList.add('game-container-start');
+                        
+                        // 显示开始屏幕
+                        startScreen.classList.remove('hidden');
+                        startScreen.classList.add('opacity-100');
+                        
+                        return;
+                    }
+                }
+                
+                // 绘制松树
+                drawTrees();
+                
+                // 绘制小鸟
+                bird.draw();
+                
+                // 绘制分数弹出动画
+                drawScorePopup();
+                
+                // 绘制游戏结束界面
+                if (gameOver) {
+                    drawGameOverScreen();
+                }
+                
+                // 继续游戏循环
+                if (!gameOver) {
+                    animationId = requestAnimationFrame(gameLoop);
+                }
+            }
+            
+            // 开始游戏
+            function startGame() {
+                // 重置游戏状态
+                gameStarted = true;
+                gameOver = false;
+                score = 0;
+                difficultyLevel = 1; // 重置难度
+                scoreDisplay.textContent = `分数: ${score}`;
+                difficultyIndicator.textContent = `难度: ${difficultyLevel}`;
+                trees.length = 0; // 确保松树数组为空
+                bird.y = canvas.height / 2;
+                bird.velocity = 0;
+                backgroundOffset = 0; // 重置背景偏移
+                
+                // 隐藏开始屏幕
+                startScreen.classList.add('opacity-0');
+                setTimeout(() => {
+                    startScreen.classList.add('hidden');
+                }, 500);
+                
+                // 隐藏标题和提示
+                gameTitle.classList.add('opacity-0', 'scale-95');
+                gameHint.classList.add('opacity-0');
+                
+                // 改变游戏容器样式，画面变亮20%
+                gameContainer.classList.remove('game-container-start');
+                gameContainer.classList.add('game-container-playing');
+                
+                // 开始游戏循环
+                gameLoop();
+                
+                // 显示游戏开始动画
+                gameStartAnimation();
+                
+                // 播放背景音乐（在用户交互后启动）
+                if (soundEnabled) {
+                    bgMusic.currentTime = 0;
+                    bgMusic.play().catch(err => {
+                        console.log("自动播放音乐失败，需要用户交互:", err);
+                        // 在首次用户点击后尝试播放
+                        document.addEventListener('click', function startMusicAfterClick() {
+                            if (soundEnabled) {
+                                bgMusic.play().catch(e => console.log("仍无法播放音乐:", e));
+                            }
+                            document.removeEventListener('click', startMusicAfterClick);
+                        }, { once: true });
+                    });
+                }
+            }
+            
+            // 声音控制
+            function toggleSound() {
+                soundEnabled = !soundEnabled;
+                
+                if (soundEnabled) {
+                    soundControl.innerHTML = '<i class="fa fa-volume-up"></i>';
+                    if (gameStarted && !gameOver) {
+                        bgMusic.play().catch(err => console.log("播放音乐失败:", err));
+                    }
+                } else {
+                    soundControl.innerHTML = '<i class="fa fa-volume-off"></i>';
+                    bgMusic.pause();
+                }
+            }
+            
+            // 点击屏幕事件处理
+            function handleClick(e) {
+                if (gameStarted && gameOver) {
+                    // 如果游戏结束，点击重新开始
+                    startGame();
+                } else if (gameStarted && !gameOver) {
+                    // 如果游戏进行中，小鸟跳跃
+                    bird.jump();
+                } else if (!gameStarted) {
+                    // 如果游戏未开始，点击开始游戏
+                    startGame();
+                }
+            }
+            
+            // 键盘事件：空格键让小鸟飞或重新开始游戏
+            function handleKeydown(e) {
+                if (e.code === 'Space') {
+                    e.preventDefault(); // 防止页面滚动
+                    if (gameStarted && gameOver) {
+                        // 如果游戏结束，按空格重新开始
+                        startGame();
+                    } else if (gameStarted && !gameOver) {
+                        // 如果游戏进行中，按空格小鸟跳跃
+                        bird.jump();
+                    } else if (!gameStarted) {
+                        // 如果游戏未开始，按空格开始游戏
+                        startGame();
+                    }
+                }
+            }
+            
+            // 事件监听
+            canvas.addEventListener('click', handleClick);
+            document.addEventListener('keydown', handleKeydown);
+            document.getElementById('startButton').addEventListener('click', startGame);
+            soundControl.addEventListener('click', toggleSound);
+            
+            // 预加载背景图片
+            skyImage.onload = function() {
+                // 图片加载完成后可以开始游戏
+            };
+            
+            // 初始化音量
+            bgMusic.volume = 0.3; // 背景音乐音量
+            jumpSound.volume = 0.5;
+            collisionSound.volume = 0.6;
+            scoreSound.volume = 0.4;
+        });
+    </script>
+</body>
+</html>    
